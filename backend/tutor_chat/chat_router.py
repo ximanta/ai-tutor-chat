@@ -31,23 +31,13 @@ class ChatContext(BaseModel):
     # and passed from the frontend.
 
 class ChatRequest(BaseModel):
+    conversationId: str # Matches frontend payload
     message: str
     context: ChatContext
 
-# The other models (TestCase, SubmissionResults) were not used in the chat
-# endpoint logic, so they are kept for completeness if you use them elsewhere.
-class TestCase(BaseModel):
-    input: List[Any]
-    output: Any
-
-class SubmissionResults(BaseModel):
-    completed: bool
-    passed: bool
-    results: List[Any]
-
 
 @router.post("/chat")
-async def chat(chat_request: ChatRequest): # Removed 'request: Request' as it was unused
+async def chat(chat_request: ChatRequest):
     """
     Chat endpoint for Code Assist.
     It streams the AI's textual response and then sends a final chunk
@@ -57,6 +47,8 @@ async def chat(chat_request: ChatRequest): # Removed 'request: Request' as it wa
         logger.info("=== Chat Request Received ===")
         logger.info(f"User ID: {chat_request.context.userId}")
         logger.info(f"Tutor Name: {chat_request.context.tutorName}")
+        logger.info(f"COnversation ID: {chat_request.conversationId}") 
+
         # Log first 100 characters of the message to avoid logging very long inputs
         logger.info(f"Message: {chat_request.message[:100]}{'...' if len(chat_request.message) > 100 else ''}") 
         
@@ -64,6 +56,7 @@ async def chat(chat_request: ChatRequest): # Removed 'request: Request' as it wa
         # Don't await the async generator, pass it directly to StreamingResponse
         response_generator = chat_service.get_chat_response(
             message=chat_request.message,
+            conversationId=chat_request.conversationId,
             # .model_dump() converts the Pydantic ChatContext object to a plain dictionary
             context=chat_request.context.model_dump() 
         )

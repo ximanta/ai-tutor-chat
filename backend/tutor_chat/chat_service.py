@@ -109,11 +109,11 @@ class CodeAssistChatService:
             
         logger.info("CodeAssistChatService: Initialization complete")
 
-    async def get_chat_response(self, message: str, context: Dict) -> AsyncGenerator[str, None]:
+    async def get_chat_response(self, message: str, conversationId: str, context: Dict) -> AsyncGenerator[str, None]:
         user_id = context.get('userId')
         tutor_name = context.get('tutorName')
-        
-        logger.info(f"get_chat_response: Method entered for user '{user_id}'. Message: '{message}'")
+        conversation_id=conversationId
+        logger.info(f"get_chat_response: Method entered for user '{user_id}'. Message: '{message}' . Conversation ID: '{conversation_id:}'")
 
         try:
             if not user_id:
@@ -150,7 +150,7 @@ class CodeAssistChatService:
                         is_final=False
                     ).model_dump_json()
                     yield f"data: {response_data}\n\n"
-                    logger.debug(f"Streamed chunk: {len(chunk_text)} chars")
+                    # logger.debug(f"Streamed chunk: {len(chunk_text)} chars")
 
             # After streaming is complete, get follow-up questions
             logger.info("Main response complete, generating follow-up questions...")
