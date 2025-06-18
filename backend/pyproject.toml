@@ -1,0 +1,15 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.111.0,<0.112.0", # Using current stable version as of knowledge cutoff
+    "uvicorn[standard]>=0.30.0,<0.31.0", # For running the FastAPI app, '[standard]' includes dependencies for faster C-based parsers
+    "pydantic>=2.0.0,<3.0.0", # Used for request body validation and data models
+    "python-dotenv>=1.0.0,<2.0.0", # For loading environment variables from .env
+    "langchain>=0.2.0,<0.3.0", # Core LangChain library
+    "langchain-openai>=0.1.0,<0.2.0", # For Azure OpenAI integration
+    "slowapi>=0.1.0,<0.2.0", # For rate limiting
+]
