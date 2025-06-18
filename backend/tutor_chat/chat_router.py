@@ -1,20 +1,41 @@
-from fastapi import APIRouter, HTTPException, Depends
+# tutor_chat/chat_router.py
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Any
 import logging
 
-# Relative import for service and shared modules
+# Relative import for service
 from .chat_service import CodeAssistChatService
 
-from starlette.requests import Request
-
-logger = logging.getLogger(__name__)
+# Get a logger for this module
+logger = logging.getLogger(__name__) # __name__ will typically be 'tutor_chat.chat_router'
 
 router = APIRouter(prefix="/aitutor", tags=["Code Assist Chat"]) 
-chat_service = CodeAssistChatService()
 
-# Pydantic Models for request body validation
+# Instantiate the service once when the router is loaded.
+# This makes it a singleton for the application's lifetime, which is generally
+# good for resources like LLM clients.
+chat_service = CodeAssistChatService()
+logger.info("CodeAssistChatService instance created for router.")
+
+# --- Pydantic Models for request body validation ---
+# IMPORTANT: These models define what your FastAPI endpoint expects.
+# They must match what your frontend sends.
+
+class ChatContext(BaseModel):
+    userId: str    # Matches frontend payload
+    tutorName: str # Matches frontend payload
+    # Removed userEmail as it's not in the provided frontend payload.
+    # If userEmail is ever needed, it should be added here as Optional[str]
+    # and passed from the frontend.
+
+class ChatRequest(BaseModel):
+    message: str
+    context: ChatContext
+
+# The other models (TestCase, SubmissionResults) were not used in the chat
+# endpoint logic, so they are kept for completeness if you use them elsewhere.
 class TestCase(BaseModel):
     input: List[Any]
     output: Any
@@ -24,18 +45,9 @@ class SubmissionResults(BaseModel):
     passed: bool
     results: List[Any]
 
-class ChatContext(BaseModel):
-    userId: str
-    tutorName: str  
-   
-
-class ChatRequest(BaseModel):
-    message: str
-    context: ChatContext
 
 @router.post("/chat")
-
-async def chat(request: Request, chat_request: ChatRequest):
+async def chat(chat_request: ChatRequest): # Removed 'request: Request' as it was unused
     """
     Chat endpoint for Code Assist.
     It streams the AI's textual response and then sends a final chunk
@@ -44,15 +56,19 @@ async def chat(request: Request, chat_request: ChatRequest):
     try:
         logger.info("=== Chat Request Received ===")
         logger.info(f"User ID: {chat_request.context.userId}")
+        logger.info(f"Tutor Name: {chat_request.context.tutorName}")
         # Log first 100 characters of the message to avoid logging very long inputs
         logger.info(f"Message: {chat_request.message[:100]}{'...' if len(chat_request.message) > 100 else ''}") 
         
         # Get the response generator from the service
+        # Don't await the async generator, pass it directly to StreamingResponse
         response_generator = chat_service.get_chat_response(
             message=chat_request.message,
-            context=chat_request.context.model_dump() # .model_dump() is recommended in Pydantic v2
+            # .model_dump() converts the Pydantic ChatContext object to a plain dictionary
+            context=chat_request.context.model_dump() 
         )
-          # Return a streaming response with SSE media type
+        
+        # Return a streaming response with SSE media type
         return StreamingResponse(
             response_generator,
             media_type='text/event-stream',
@@ -60,14 +76,15 @@ async def chat(request: Request, chat_request: ChatRequest):
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive',
                 'Content-Type': 'text/event-stream',
-                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Origin': '*', # Adjust for production
             }
         )
 
     except ValueError as ve:
         logger.error(f"Validation error in chat endpoint: {ve}", exc_info=True)
-        raise HTTPException(status_code=400, detail=str(ve))
+        # HTTP 400 Bad Request is appropriate for client-side input validation errors
+        raise HTTPException(status_code=400, detail=f"Bad Request: {str(ve)}")
     except Exception as e:
-        logger.error(f"Unhandled error in chat endpoint: {e}", exc_info=True)
-        # Return HTTP 500 with a generic error detail for client, log full detail on server
-        raise HTTPException(status_code=500, detail="An internal server error occurred.")
+        logger.critical(f"Unhandled error in chat endpoint: {e}", exc_info=True)
+        # For unhandled server errors, return HTTP 500
+        raise HTTPException(status_code=500, detail=str(e))
