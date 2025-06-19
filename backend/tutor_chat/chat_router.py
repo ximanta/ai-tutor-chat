@@ -80,6 +80,20 @@ async def chat(chat_request: ChatRequest):
         logger.critical(f"Unhandled error in chat endpoint: {e}", exc_info=True)
         # For unhandled server errors, return HTTP 500
         raise HTTPException(status_code=500, detail=str(e))
+@router.get("/api/conversations/memory/{conversation_id}", response_model=Optional[List[dict[str, str]]])
+async def get_conversation_from_memory(conversation_id: str):
+    # In a real app, you'd add authentication/authorization here
+    # to ensure the requesting user is allowed to see this conversation's memory,
+    # even if it's just for a demo.
+    # For now, we'll keep it simple.
+
+    content = chat_service.get_memory_content(conversation_id)
+    if content is None:
+        # You might want to return a 404 if not found
+        # from fastapi import HTTPException
+        # raise HTTPException(status_code=404, detail="Conversation memory not found")
+        return None # Or an empty list, depending on desired frontend behavior
+    return content
 
 @router.delete("/chat/memory/{conversation_id}")
 async def clear_memory(conversation_id: str):

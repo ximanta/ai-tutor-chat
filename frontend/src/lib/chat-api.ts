@@ -68,3 +68,22 @@ export async function* chatStream(request: ChatRequest): AsyncGenerator<StreamRe
         throw error;
     }
 }
+
+export async function fetchMessagesForConversation(conversationId: string): Promise<Array<{role: string, content: string}> | null> {
+    try {
+        const response = await fetch(`http://localhost:8000/aitutor/api/conversations/memory/${conversationId}`);
+        if (!response.ok) return null;
+        return await response.json();
+    } catch (e) {
+        console.error('Failed to fetch conversation memory', e);
+        return null;
+    }
+}
+
+export async function clearBackendMemory(conversationId: string): Promise<void> {
+    try {
+        await fetch(`http://localhost:8000/aitutor/chat/memory/${conversationId}`, { method: 'DELETE' });
+    } catch (e) {
+        console.error('Failed to clear backend memory', e);
+    }
+}

@@ -119,6 +119,30 @@ class CodeAssistChatService:
         self.active_memories[conversation_id] = memory
         logger.info(f"Created new ConversationBufferMemory for conversation_id: {conversation_id}")
         return memory
+    def get_memory_content(self, conversation_id: str) -> Optional[List[Dict[str, str]]]:
+        if conversation_id in self.active_memories:
+            memory = self.active_memories[conversation_id]
+            # memory.chat_memory.messages contains a list of BaseMessage objects
+            # We should format them into a simpler JSON-serializable list
+            formatted_messages = []
+            for msg in memory.chat_memory.messages:
+                role = "unknown"
+                if hasattr(msg, 'type'): # LangChain's BaseMessage has 'type'
+                    role = msg.type
+                elif type(msg).__name__ == 'HumanMessage': # Older or different BaseMessage structures
+                    role = 'human'
+                elif type(msg).__name__ == 'AIMessage':
+                    role = 'ai'
+                elif type(msg).__name__ == 'SystemMessage':
+                    role = 'system'
+
+                formatted_messages.append({
+                    "role": role,
+                    "content": msg.content
+                })
+            return formatted_messages
+        logger.warning(f"No active memory found for conversation_id: {conversation_id} in get_memory_content")
+        return None
 
     def clear_conversation_memory(self, conversation_id: str):
         if conversation_id in self.active_memories:

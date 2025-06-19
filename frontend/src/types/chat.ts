@@ -14,3 +14,9 @@ export interface StreamResponse {
     follow_up_prompts?: string[];
     is_final: boolean;
 }
+
+export interface ConversationSummary {
+    id: string; // UUID
+    title: string;
+    lastActivity: number; // Timestamp
+}
