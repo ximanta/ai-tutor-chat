@@ -55,9 +55,8 @@ async def chat(chat_request: ChatRequest):
         # Get the response generator from the service
         # Don't await the async generator, pass it directly to StreamingResponse
         response_generator = chat_service.get_chat_response(
+            conversation_id=chat_request.conversationId,
             message=chat_request.message,
-            conversationId=chat_request.conversationId,
-            # .model_dump() converts the Pydantic ChatContext object to a plain dictionary
             context=chat_request.context.model_dump() 
         )
         
@@ -80,4 +79,17 @@ async def chat(chat_request: ChatRequest):
     except Exception as e:
         logger.critical(f"Unhandled error in chat endpoint: {e}", exc_info=True)
         # For unhandled server errors, return HTTP 500
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/chat/memory/{conversation_id}")
+async def clear_memory(conversation_id: str):
+    """
+    Endpoint to clear the memory for a specific conversation_id.
+    Useful for testing or resetting a conversation.
+    """
+    try:
+        chat_service.clear_conversation_memory(conversation_id)
+        return {"detail": f"Memory cleared for conversation_id: {conversation_id}"}
+    except Exception as e:
+        logger.error(f"Error clearing memory for conversation_id {conversation_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

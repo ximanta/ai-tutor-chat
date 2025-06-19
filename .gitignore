@@ -19,6 +19,7 @@ pnpm-lock.yaml
 **/.env*
 .venv/
 .DS_Store
+.idea
 .env.local
 .env.development.local
 .env.test.local
@@ -33,3 +34,4 @@ backend.egg-info
 # ignore Excel files
 *.xlsx
 
+.next/

@@ -6,6 +6,8 @@ from typing import Dict, AsyncGenerator, Optional, List, Any
 from langchain_openai import AzureChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from pydantic import BaseModel, ValidationError, Field
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts import MessagesPlaceholder
 
 # --- Logging Configuration ---
 logger = logging.getLogger(__name__)
@@ -91,13 +93,13 @@ class CodeAssistChatService:
             )
             logger.info("AzureChatOpenAI initialized successfully")
             
-            # Configure non-streaming LLM for structured output
+            # Configure non-streaming LLM for structured output for folloup
             self.structured_llm = AzureChatOpenAI(
                 openai_api_version=required_env_vars["AZURE_OPENAI_API_VERSION"],
                 azure_deployment=required_env_vars["AZURE_OPENAI_DEPLOYMENT_NAME"],
                 azure_endpoint=required_env_vars["AZURE_OPENAI_ENDPOINT"],
                 api_key=required_env_vars["AZURE_OPENAI_API_KEY"],
-                temperature=0.7,
+                temperature=0.5,
                 streaming=False,  # Not streaming for structured output
             ).with_structured_output(LLMStructuredOutput)
             logger.info("Structured LLM configured successfully")
@@ -108,40 +110,50 @@ class CodeAssistChatService:
             raise ChatServiceError(error_msg) from e
             
         logger.info("CodeAssistChatService: Initialization complete")
+        self.active_memories: Dict[str, ConversationBufferMemory] = {}
 
-    async def get_chat_response(self, message: str, conversationId: str, context: Dict) -> AsyncGenerator[str, None]:
+    def _get_or_create_memory(self, conversation_id: str) -> ConversationBufferMemory:
+        if conversation_id in self.active_memories:
+            return self.active_memories[conversation_id]
+        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        self.active_memories[conversation_id] = memory
+        logger.info(f"Created new ConversationBufferMemory for conversation_id: {conversation_id}")
+        return memory
+
+    def clear_conversation_memory(self, conversation_id: str):
+        if conversation_id in self.active_memories:
+            del self.active_memories[conversation_id]
+            logger.info(f"Cleared memory for conversation_id: {conversation_id}")
+        else:
+            logger.info(f"No memory found to clear for conversation_id: {conversation_id}")
+
+    async def get_chat_response(self, conversation_id: str, message: str, context: Dict) -> AsyncGenerator[str, None]:
+        if not conversation_id:
+            raise ValueError("conversation_id must be provided and not empty.")
         user_id = context.get('userId')
         tutor_name = context.get('tutorName')
-        conversation_id=conversationId
-        logger.info(f"get_chat_response: Method entered for user '{user_id}'. Message: '{message}' . Conversation ID: '{conversation_id:}'")
-
+        logger.info(f"get_chat_response: Method entered for user '{user_id}'. Message: '{message}' . Conversation ID: '{conversation_id}'")
         try:
             if not user_id:
                 raise ValueError("User ID must be provided in context.")
             if not tutor_name:
                 raise ValueError("Tutor name must be provided in context.")
-
             logger.debug(f"Context received in service: User ID={user_id}, Tutor Name={tutor_name}")
-            
-            # Format the system prompt with tutor name
             system_prompt = self.system_prompt_template.format(tutor_name=tutor_name)
             human_message_content = message
-            
             if "@" in user_id and ("my email" in message.lower() or "what's my email" in message.lower() or "my user id" in message.lower()):
                 human_message_content += f"\n\n(Note: The user's registered email/ID is: {user_id})"
                 logger.info(f"Injected userId '{user_id}' into prompt as user asked for email/ID.")
-
-            # First, stream the main response
+            memory = self._get_or_create_memory(conversation_id)
             chat_prompt = ChatPromptTemplate.from_messages([
                 ("system", system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
                 ("human", "{user_input}")
             ])
-            
             chain = chat_prompt | self.main_llm
             logger.info("Starting streaming chat completion...")
-
             accumulated_text = ""
-            async for chunk in chain.astream({"user_input": human_message_content}):
+            async for chunk in chain.astream({"user_input": human_message_content, "chat_history": memory.chat_memory.messages}):
                 if hasattr(chunk, 'content') and chunk.content:
                     chunk_text = chunk.content
                     accumulated_text += chunk_text
@@ -150,9 +162,6 @@ class CodeAssistChatService:
                         is_final=False
                     ).model_dump_json()
                     yield f"data: {response_data}\n\n"
-                    # logger.debug(f"Streamed chunk: {len(chunk_text)} chars")
-
-            # After streaming is complete, get follow-up questions
             logger.info("Main response complete, generating follow-up questions...")
             try:
                 structured_prompt = self.follow_up_prompt_template.format(
@@ -161,8 +170,6 @@ class CodeAssistChatService:
                     ai_main_response=accumulated_text
                 )
                 structured_response = await self.structured_llm.ainvoke(structured_prompt)
-                
-                # Send the final chunk with follow-up prompts
                 final_response = StreamedChatResponse(
                     text_chunk=None,
                     follow_up_prompts=structured_response.follow_up_questions,
@@ -170,12 +177,12 @@ class CodeAssistChatService:
                 )
                 yield f"data: {final_response.model_dump_json()}\n\n"
                 logger.info("Final response chunk sent with follow-up prompts")
-
             except Exception as e:
                 logger.error(f"Error generating follow-up questions: {str(e)}")
                 final_response = StreamedChatResponse(is_final=True)
                 yield f"data: {final_response.model_dump_json()}\n\n"
-
+            # Save context to memory after response
+            memory.save_context({"input": human_message_content}, {"output": accumulated_text})
         except Exception as e:
             logger.error(f"Error in chat response: {str(e)}", exc_info=True)
             error_response = StreamedChatResponse(
